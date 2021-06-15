@@ -9,7 +9,7 @@ on:
 jobs:
 
   build:
-    runs-on: grpc/go
+    runs-on: grpc/go-latest
     steps:
     - uses: actions/checkout@v2
 
