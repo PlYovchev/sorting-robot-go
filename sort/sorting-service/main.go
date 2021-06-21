@@ -5,12 +5,12 @@ import (
 	"log"
 	"net"
 
-	"github.com/plyovchev/go-at-ocado/sort/gen"
+	"github.com/plyovchev/sorting-robot-go/sort/gen"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
-const serverPort = "localhost:10000"
+const serverPort = "0.0.0.0:10000"
 
 func main() {
 	grpcServer, lis := newSortingServer()

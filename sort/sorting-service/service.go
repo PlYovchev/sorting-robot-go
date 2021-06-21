@@ -3,70 +3,81 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log"
 	"math/rand"
+	"strconv"
+	"time"
 
-	"github.com/plyovchev/go-at-ocado/sort/gen"
+	"github.com/plyovchev/sorting-robot-go/sort/gen"
 )
 
 func newSortingService() gen.SortingRobotServer {
-	return &sortingService{}
+	rand.Seed(time.Now().UnixNano())
+	return &sortingService{
+		cubbyToItems: map[string][]*gen.Item{},
+	}
 }
 
 type sortingService struct {
-	items        []*gen.Item
-	selectedItem *gen.Item
-	cubbiesItems map[string]*gen.Item
+	Bin          []*gen.Item
+	pickedItem   *gen.Item
+	cubbyToItems map[string][]*gen.Item
 }
 
-func (s *sortingService) LoadItems(context context.Context, request *gen.LoadItemsRequest) (*gen.LoadItemsResponse, error) {
-	itemsToLoad := request.GetItems()
-	if itemsToLoad == nil {
-		return nil, errors.New("no items to load")
-	}
-	s.items = itemsToLoad
-	return &gen.LoadItemsResponse{}, nil
+func (s *sortingService) LoadItems(ctx context.Context, req *gen.LoadItemsRequest) (*gen.Empty, error) {
+	s.Bin = append(s.Bin, req.Items...)
+	log.Printf("Added [%d] items to the bin, for total storage of [%d]", len(req.Items), len(s.Bin))
+
+	return &gen.Empty{}, nil
 }
 
-func (s *sortingService) MoveItem(context context.Context, req *gen.MoveItemRequest) (*gen.MoveItemResponse, error) {
-	if s.selectedItem == nil {
-		return nil, errors.New("no item is selected")
+func (s *sortingService) PickItem(context.Context, *gen.Empty) (*gen.PickItemResponse, error) {
+	if len(s.Bin) < 1 {
+		log.Println("no items in the bin, get out.")
+		return nil, errors.New("no items in the bin, get out")
+	} else if s.pickedItem != nil {
+		log.Println("an item is already picked")
+		return nil, errors.New("an item is already picked")
 	}
 
-	if req.Cubby == nil {
-		return nil, errors.New("no cubby specified")
-	}
+	itemPos := rand.Intn(len(s.Bin))
+	item := s.Bin[itemPos]
+	s.pickedItem = item
+	s.Bin = append(s.Bin[:itemPos], s.Bin[itemPos+1:]...)
 
-	cubbyId := req.Cubby.Id
-
-	if s.cubbiesItems == nil {
-		s.cubbiesItems = make(map[string]*gen.Item)
-	}
-
-	s.cubbiesItems[cubbyId] = s.selectedItem
-	s.selectedItem = nil
-	return &gen.MoveItemResponse{}, nil
+	log.Printf("Picked item at position [%d] from the bin, [%d] items left", itemPos, len(s.Bin))
+	return &gen.PickItemResponse{
+		Item: item,
+	}, nil
 }
 
-func (s *sortingService) SelectItem(context.Context, *gen.SelectItemRequest) (*gen.SelectItemResponse, error) {
-	if s.selectedItem != nil {
-		return nil, errors.New("item already selected")
+func (s *sortingService) PlaceInCubby(ctx context.Context, req *gen.PlaceInCubbyRequest) (*gen.Empty, error) {
+	if s.pickedItem == nil {
+		log.Println("no item is currently picked")
+		return nil, errors.New("no item is currently picked")
+	} else if !isValidCubbyID(req.Cubby.Id) {
+		log.Printf("received invalid cubby id: %s", req.Cubby.Id)
+		return nil, errors.New("invalid cubby ID. Should be in range [1..10]")
 	}
 
-	if len(s.items) == 0 {
-		return nil, errors.New("no items in the main cubby")
-	}
-
-	fmt.Println(s.items)
-	selectedItemAtIndex := rand.Intn(len(s.items))
-	s.selectedItem = s.items[selectedItemAtIndex]
-	s.items = deleteItemAtIndex(s.items, selectedItemAtIndex)
-
-	return &gen.SelectItemResponse{Item: s.selectedItem}, nil
+	s.cubbyToItems[req.Cubby.Id] = append(s.cubbyToItems[req.Cubby.Id], s.pickedItem)
+	s.pickedItem = nil
+	return &gen.Empty{}, nil
 }
 
-func deleteItemAtIndex(items []*gen.Item, index int) []*gen.Item {
-	copy(items[index:], items[index+1:])
-	items[len(items)-1] = nil
-	return items[:len(items)-1]
+func (s *sortingService) AuditState(context.Context, *gen.Empty) (*gen.AuditStateResponse, error) {
+	cubbiesToItems := []*gen.CubbyToItems{}
+	for cubby, items := range s.cubbyToItems {
+		cubbiesToItems = append(cubbiesToItems, &gen.CubbyToItems{
+			Cubby: &gen.Cubby{Id: cubby},
+			Items: items,
+		})
+	}
+
+	return &gen.AuditStateResponse{CubbiesToItems: cubbiesToItems}, nil
+}
+
+func isValidCubbyID(id string) bool {
+	n, err := strconv.Atoi(id)
+	return err == nil && n >= 1 && n <= 10
 }
